@@ -13,7 +13,7 @@ const TILE_SYMBOLS = {
   'conveyor-left': '←',
   'conveyor-right': '→',
   trap: 'X',
-  lava: '',
+  lava: '▒',
 };
 
 const gridSize = 10;
@@ -22,7 +22,12 @@ let players = [];
 let gameStarted = false;
 let tickInterval = null;
 
+const statusEl = document.getElementById('status');
 const gridEl = document.getElementById('grid');
+
+function setStatus(msg) {
+  statusEl.textContent = msg;
+}
 
 function createGrid() {
   gridEl.style.gridTemplateColumns = `repeat(${gridSize}, 40px)`;
@@ -40,8 +45,13 @@ function createGrid() {
       div.innerText = TILE_SYMBOLS[cell.type];
 
       div.addEventListener('click', () => {
-        if (gameStarted) return; 
-        cycleTile(cell, div);
+        if (gameStarted) return;
+        cycleTile(cell, div, false); // normal forward cycle
+      });
+      div.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (gameStarted) return;
+        cycleTile(cell, div, true); // backwards cycle
       });
 
       cell.el = div;
@@ -51,9 +61,14 @@ function createGrid() {
 }
 
 // Cycle tile on click (click goes to next type)
-function cycleTile(cell, el) {
+function cycleTile(cell, el, backwards = false) {
   const currentIndex = TILE_TYPES.indexOf(cell.type);
-  const nextIndex = (currentIndex + 1) % TILE_TYPES.length;
+  let nextIndex;
+  if (backwards) {
+    nextIndex = (currentIndex - 1 + TILE_TYPES.length) % TILE_TYPES.length;
+  } else {
+    nextIndex = (currentIndex + 1) % TILE_TYPES.length;
+  }
   cell.type = TILE_TYPES[nextIndex];
   el.innerText = TILE_SYMBOLS[cell.type];
 }
@@ -111,13 +126,13 @@ function startTickLoop() {
           player.y = nextY;
 
           if (nextCell.type === 'lava') {
-            alert('☠️ You fell into lava!');
+            setStatus('You Died');
             resetGame();
             return;
           }
 
           // stop immediately if sticky and allow turning
-          if (nextCell.type === 'setTimeout(function() {}, 10);icky') {
+          if (nextCell.type === 'sticky') {
             player.moveDirection = null;
             player.onSticky = true;
           }
@@ -133,13 +148,13 @@ function startTickLoop() {
           tickInterval = null;
           gameStarted = false;
           renderGrid();
-            setTimeout(() => alert('🎉 You reached the end!'), 100);
+          setStatus('You Won');
           return;
         }
 
         // check death if landed on trap
         if (currentCell && currentCell.type === 'trap') {
-          alert('💀 You stepped on a trap!');
+          setStatus('You Died');
           resetGame();
           return;
         }
@@ -161,7 +176,7 @@ function startTickLoop() {
 
             // lava kills if conveyor pushes you onto it
             if (nextCell.type === 'lava') {
-              alert('☠️ Conveyor threw you into lava!');
+              setStatus('You Died');
               resetGame();
               return;
             }
@@ -187,6 +202,7 @@ function setMoveDirection(dx, dy) {
 }
 
 function resetGame() {
+  setStatus('');
   if (tickInterval) clearInterval(tickInterval);
   tickInterval = null;
   gameStarted = false;
@@ -268,12 +284,6 @@ function loadFromCode(code) {
   } catch (e) {
     alert('Invalid save code!');
   }
-}
-
-function loadLevel(levelCode) {
-  decodeAndLoadLevel(levelCode);
-  gameStarted = true;
-  renderGrid();
 }
 
 // Keybinds
