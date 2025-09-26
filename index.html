@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Slidtrix Main Menu</title>
+  <style>
+    body {
+      background: black;
+      color: #0f0;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      user-select: none;
+    }
+
+    h1 {
+      font-size: 48px;
+      margin-bottom: 50px;
+    }
+
+    .menu-button {
+      background: black;
+      border: 2px solid #0f0;
+      color: #0f0;
+      padding: 15px 50px;
+      font-size: 24px;
+      margin: 15px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .menu-button:hover {
+      background: #0f0;
+      color: black;
+    }
+  </style>
+</head>
+<body>
+  <h1>SLIDTRIX</h1>
+
+  <button class="menu-button" onclick="playGame()">Play</button>
+  <button class="menu-button" onclick="showHowTo()">How To</button>
+  <button class="menu-button" onclick="worldEditor()">World Maker</button>
+
+  <script>
+    function worldEditor() {
+      window.location.href = 'worltrix.html';
+    }
+    function playGame() {
+      window.location.href = 'slidtrix.html';
+    }
+
+    function showHowTo() {
+      alert(`🎮 Slidtrix How To:
+- Click tiles to edit your maze.
+- TAB to start.
+- Arrow keys to move (sliding).
+- Sticky tiles (🟧) stop you, conveyors (⬆️) push you 1 tile.
+- Reach the end (🟥) to win!
+- Press O to save, P to load levels.`);
+    }
+  </script>
+</body>
+</html>
