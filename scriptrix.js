@@ -1,4 +1,19 @@
-const TILE_TYPES = ['wall', 'empty', 'start', 'end', 'sticky', 'conveyor-up', 'conveyor-down', 'conveyor-left', 'conveyor-right', 'trap', 'lava',];
+// Slidtrix rules overview:
+// - Movement is tick-based and deterministic
+// - player slide until blocked by a wall, sticky tile, or boundary
+// - Input only sets direction; it does not move immediately
+// - Conveyors only activate when the player is stopped
+// - Sticky tiles allow changing direction mid-slide
+// - Lava kills immediately on entry
+// - Trap kills only after movement has fully stopped
+
+// Do not reintroduce multiple players without redesigning:
+// - collision rules
+// - input ownership
+// - win/death priority
+
+// NOTE: Order matters — tiles are cycled in this exact sequence in the editor
+const TILE_TYPES = ['wall', 'empty', 'start', 'end', 'sticky', 'conveyor-up', 'conveyor-down', 'conveyor-left', 'conveyor-right', 'trap', 'lava', 'portal',];
 
 // Symbols for display
 const TILE_SYMBOLS = {
@@ -14,11 +29,12 @@ const TILE_SYMBOLS = {
   'conveyor-right': '→',
   trap: 'X',
   lava: '▒',
+  portal: '☉',
 };
 
 const gridSize = 10;
 const grid = [];     
-let players = [];              
+let player = null;              
 let gameStarted = false;
 let tickInterval = null;
 
@@ -60,7 +76,8 @@ function createGrid() {
   }
 }
 
-// Cycle tile on click (click goes to next type)
+// Editor-only tile cycling; disabled once the game starts
+// Left click = forward, right click = backward
 function cycleTile(cell, el, backwards = false) {
   const currentIndex = TILE_TYPES.indexOf(cell.type);
   let nextIndex;
@@ -73,16 +90,16 @@ function cycleTile(cell, el, backwards = false) {
   el.innerText = TILE_SYMBOLS[cell.type];
 }
 
+// Rendering is purely visual; game state is updated only in the tick loop
 function renderGrid() {
   for (let row of grid) {
     for (let cell of row) {
       cell.el.innerText = TILE_SYMBOLS[cell.type];
     }
   }
-  for (let p of players) {
-    if (getCell(p.x, p.y)) {
-      grid[p.y][p.x].el.innerText = TILE_SYMBOLS.player;
-    }
+    if (getCell(player.x, player.y)) {
+      grid[player.y][player.x].el.innerText = TILE_SYMBOLS.player;
+    
   }
 }
 
@@ -101,7 +118,13 @@ function getCell(x, y) {
   return grid[y][x];
 }
 
+// Main simulation loop:
+// - Runs at a fixed tick rate (not frame-based)
+// - All movement, death, and win logic happens here
+// - Rendering happens after simulation
 function startTickLoop() {
+  // Simulation assumes a single active player.
+  // Logic here is not designed to support multiple entities.
   const tickDuration = 100; // 10 ticks/sec
 
   if (tickInterval) clearInterval(tickInterval);
@@ -109,9 +132,11 @@ function startTickLoop() {
   tickInterval = setInterval(() => {
     if (!gameStarted) return;
 
-    for (let player of players) {
-
-      // --- sliding movement ---
+      // Sliding movement:
+      // - Player continues moving in the current direction each tick
+      // - Movement stops before entering walls or leaving the grid
+      // - Entering lava kills immediately
+      // - Entering sticky stops movement and allows turning
       if (player.moveDirection) {
         const nextX = player.x + player.moveDirection.dx;
         const nextY = player.y + player.moveDirection.dy;
@@ -125,6 +150,19 @@ function startTickLoop() {
           player.x = nextX;
           player.y = nextY;
 
+        if (nextCell.type === 'portal') {
+          // find the other portal
+          for (let row of grid) {
+            for (let cell of row) {
+              if (cell.type === 'portal' && (cell.x !== nextX || cell.y !== nextY)) {
+                player.x = cell.x;
+                player.y = cell.y;
+                break;
+              }
+            }
+          }
+          // momentum continues; don't reset moveDirection
+        }
           if (nextCell.type === 'lava') {
             setStatus('You Died');
             resetGame();
@@ -139,7 +177,9 @@ function startTickLoop() {
         }
       }
 
-      // --- check win if stopped on end ---
+      // Win condition:
+      // - Player must be fully stopped on an end tile
+      // - Sliding over the end tile does NOT count
       if (!player.moveDirection) {
         const currentCell = getCell(player.x, player.y);
 
@@ -152,14 +192,21 @@ function startTickLoop() {
           return;
         }
 
-        // check death if landed on trap
+        // Trap rule:
+        // - Trap only kills after the player has stopped moving
+        // - This is intentional and different from lava
         if (currentCell && currentCell.type === 'trap') {
           setStatus('You Died');
           resetGame();
           return;
         }
 
-        // --- conveyor tiles: move 1 tile if stopped ---
+        // Conveyor rule:
+        // - Conveyors activate only when the player is stopped
+        // - They move the player exactly one tile per tick
+        // - Conveyors never push into walls
+        // - Conveyors can push into lava (which kills immediately)
+
         if (currentCell && currentCell.type.startsWith('conveyor')) {
           let dx = 0, dy = 0;
           const dir = currentCell.type.split('-')[1];
@@ -170,7 +217,7 @@ function startTickLoop() {
             case 'right': dx = 1; break;
           }
           const nextCell = getCell(player.x + dx, player.y + dy);
-          if (nextCell && nextCell.type !== 'wall' && nextCell.type !== 'sticky') {
+          if (nextCell && nextCell.type !== 'wall') {
             player.x += dx;
             player.y += dy;
 
@@ -183,31 +230,47 @@ function startTickLoop() {
           }
         }
       }
-    }
 
     renderGrid();
   }, tickDuration);
 }
 
-// Set movement direction — allows turning on sticky
+// Direction input:
+// - Direction can only be changed when stopped
+// - OR when standing on a sticky tile
+// - Input affects the single player only.
+// - There is no concept of per-player input or turns.
 function setMoveDirection(dx, dy) {
   if (!gameStarted) return;
 
-  for (let p of players) {
-    if (!p.moveDirection || p.onSticky) {
-      p.moveDirection = { dx, dy };
-      p.onSticky = false; // reset sticky flag after turning
+    if (!player.moveDirection || player.onSticky) {
+      player.moveDirection = { dx, dy };
+      player.onSticky = false; // reset sticky flag after turning
     }
-  }
 }
 
+// Resets runtime state only; the level layout is preserved
 function resetGame() {
   setStatus('');
   if (tickInterval) clearInterval(tickInterval);
   tickInterval = null;
   gameStarted = false;
-  players = [];
+  player = null;
   renderGrid();
+}
+
+function validatePortals() {
+  let portalCount = 0;
+  for (let row of grid) {
+    for (let cell of row) {
+      if (cell.type === 'portal') portalCount++;
+    }
+  }
+  if (portalCount !== 2) {
+    alert('Level must have exactly 2 portals!');
+    return false;
+  }
+  return true;
 }
 
 document.addEventListener('keydown', (e) => {
@@ -218,11 +281,16 @@ document.addEventListener('keydown', (e) => {
       alert('Set a start tile first!');
       return;
     }
+    // Exactly one player is spawned from the single start tile
+    // Multiple start tiles are treated as a level design error
     if (starts.length > 1) {
       alert('Multiple start tiles detected. Please ensure exactly one start before starting.');
       return;
     }
-    players = [{ x: starts[0].x, y: starts[0].y, moveDirection: null }];
+
+    if (!validatePortals()) return; // <- check portals 
+
+    player = { x: starts[0].x, y: starts[0].y, moveDirection: null, onSticky: false };
     gameStarted = true;
     renderGrid();
     startTickLoop();
@@ -247,11 +315,12 @@ document.addEventListener('keydown', (e) => {
 createGrid();
 renderGrid();
 
-// Save code
+// Save codes store LEVEL STATE ONLY (grid + player positions)
+// Runtime state (movement, sticky flags, active game) is intentionally reset
 function generateSaveCode() {
   const data = {
     grid: grid.map(row => row.map(cell => cell.type)),
-    players: players.map(p => ({ x: p.x, y: p.y }))
+    player: { x: player.x, y: player.y }
   };
   const json = JSON.stringify(data);
   return btoa(json); // encode as base64 string
@@ -270,13 +339,13 @@ function loadFromCode(code) {
       }
     }
 
-    // restore players
-    players = data.players.map(p => ({
-      x: p.x,
-      y: p.y,
+    // restore player
+    player = {
+      x: data.player.x,
+      y: data.player.y,
       moveDirection: null,
       onSticky: false
-    }));
+    };
 
     gameStarted = false; // start fresh
     renderGrid();
@@ -286,7 +355,11 @@ function loadFromCode(code) {
   }
 }
 
-// Keybinds
+// Controls:
+// - Tab: start simulation (requires exactly one start tile)
+// - R: reset simulation
+// - O: export level as save code
+// - P: import level from save code
 document.addEventListener('keydown', (e) => {
   if (e.key === 'o' || e.key === 'O') {
     const code = generateSaveCode();
