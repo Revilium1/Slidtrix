@@ -97,9 +97,10 @@ function renderGrid() {
       cell.el.innerText = TILE_SYMBOLS[cell.type];
     }
   }
-    if (getCell(player.x, player.y)) {
-      grid[player.y][player.x].el.innerText = TILE_SYMBOLS.player;
-    
+
+  // ONLY draw player if one exists
+  if (player && getCell(player.x, player.y)) {
+    grid[player.y][player.x].el.innerText = TILE_SYMBOLS.player;
   }
 }
 
@@ -266,7 +267,7 @@ function validatePortals() {
       if (cell.type === 'portal') portalCount++;
     }
   }
-  if (portalCount !== 2) {
+  if (portalCount !== 2 && portalCount !== 0) {
     alert('Level must have exactly 2 portals!');
     return false;
   }
@@ -315,55 +316,77 @@ document.addEventListener('keydown', (e) => {
 createGrid();
 renderGrid();
 
-// Save codes store LEVEL STATE ONLY (grid + player positions)
-// Runtime state (movement, sticky flags, active game) is intentionally reset
-function generateSaveCode() {
-  const data = {
-    grid: grid.map(row => row.map(cell => cell.type)),
-    player: { x: player.x, y: player.y }
-  };
-  const json = JSON.stringify(data);
-  return btoa(json); // encode as base64 string
+function encodeBase64Unicode(str) {
+  return btoa(
+    encodeURIComponent(str).replace(/%([0-9A-F]{2})/g,
+      (_, p1) => String.fromCharCode('0x' + p1)
+    )
+  );
 }
 
-// Load code
+function decodeBase64Unicode(str) {
+  return decodeURIComponent(
+    Array.from(atob(str), c =>
+      '%' + c.charCodeAt(0).toString(16).padStart(2, '0')
+    ).join('')
+  );
+}
+
+// Save codes store LEVEL STATE ONLY (grid + player positions)
+// Runtime state (movement, sticky flags, active game) is intentionally reset
+let levelTitle = '';
+let levelAuthor = '';
+
+function exportLevel() {
+  const title = prompt('Enter level title:', levelTitle);
+  if (title === null) return;
+  levelTitle = title;
+
+  const author = prompt('Enter author name:', levelAuthor);
+  if (author === null) return;
+  levelAuthor = author;
+
+  const data = {
+    title: levelTitle,
+    author: levelAuthor,
+    grid: grid.map(row => row.map(cell => cell.type))
+  };
+
+  const code = encodeBase64Unicode(JSON.stringify(data));
+  prompt('Copy this save code:', code);
+}
+
 function loadFromCode(code) {
   try {
-    const json = atob(code); // decode base64
-    const data = JSON.parse(json);
+    const data = JSON.parse(decodeBase64Unicode(code));
+    levelTitle = data.title || 'Untitled Level';
+    levelAuthor = data.author || 'Unknown';
 
-    // restore grid
     for (let y = 0; y < gridSize; y++) {
       for (let x = 0; x < gridSize; x++) {
         grid[y][x].type = data.grid[y][x];
       }
     }
 
-    // restore player
-    player = {
-      x: data.player.x,
-      y: data.player.y,
-      moveDirection: null,
-      onSticky: false
-    };
-
-    gameStarted = false; // start fresh
+    player = null; // reset runtime
+    gameStarted = false;
     renderGrid();
-    alert('Maze loaded from code!');
-  } catch (e) {
+    updateLevelMeta();
+    alert(`Level loaded!\n${levelTitle} By: ${levelAuthor}`);
+  } catch {
     alert('Invalid save code!');
   }
 }
 
-// Controls:
-// - Tab: start simulation (requires exactly one start tile)
-// - R: reset simulation
-// - O: export level as save code
-// - P: import level from save code
+function updateLevelMeta() {
+  const metaEl = document.getElementById('level-meta');
+  if (metaEl) metaEl.textContent = `${levelTitle} By: ${levelAuthor}`;
+}
+
+// Attach hotkeys **after** functions exist
 document.addEventListener('keydown', (e) => {
   if (e.key === 'o' || e.key === 'O') {
-    const code = generateSaveCode();
-    prompt('Copy this save code:', code);
+    exportLevel();
   } else if (e.key === 'p' || e.key === 'P') {
     const code = prompt('Paste your save code:');
     if (code) loadFromCode(code);
