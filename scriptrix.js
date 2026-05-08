@@ -274,6 +274,16 @@ function validatePortals() {
   return true;
 }
 
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(err => {
+      console.error(`Error attempting to enable fullscreen: ${err.message}`);
+    });
+  } else {
+    document.exitFullscreen();
+  }
+}
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Tab') {
     e.preventDefault();
@@ -300,6 +310,12 @@ document.addEventListener('keydown', (e) => {
 
   if (e.key === 'r' || e.key === 'R') {
     resetGame();
+    return;
+  }
+
+  if (e.key === '=' || e.key === '+') {
+    e.preventDefault();
+    toggleFullscreen();
     return;
   }
 
