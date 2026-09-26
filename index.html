@@ -2,52 +2,108 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Slidtrix Main Menu</title>
+  <title>Slidtrix</title>
   <style>
     body {
-      background: black;
-      color: #0f0;
-      font-family: monospace;
+      font-family: sans-serif;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
+      margin-top: 20px;
       user-select: none;
-    }
-
-    h1 {
-      font-size: 48px;
-      margin-bottom: 50px;
-    }
-
-    .menu-button {
       background: black;
-      border: 2px solid #0f0;
+    }
+    h2 {
+    color : #0f0;
+    }
+    #grid {
       color: #0f0;
-      padding: 15px 50px;
+      display: grid;
+      grid-template-columns: repeat(10, 40px);
+      grid-template-rows: repeat(10, 40px);
+      gap: 2px;
+      margin-bottom: 20px;
+    }
+    .tile {
+      color: #0f0;
+      width: 40px;
+      height: 40px;
       font-size: 24px;
-      margin: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
-      transition: all 0.2s;
+      background-color: #000;
+    }
+    #controls {
+      margin-bottom: 10px;
+    }
+    #library-controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin: 0 0 10px;
+    }
+    #library-controls button {
+      padding: 8px 12px;
+      color: #0f0;
+      background: #111;
+      border: 1px solid #0f0;
+      cursor: pointer;
+    }
+    #level-meta {
+      color: #aaa;
+      margin: 0 0 8px;
+    }
+    label {
+      margin-right: 8px;
     }
 
-    .menu-button:hover {
-      background: #0f0;
-      color: black;
+    #status {
+      color: #0f0;
+    }
+    #game-stats {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 18px;
+      margin: 0 0 12px;
+      color: #0f0;
+    }
+    #game-stats[hidden] {
+      display: none;
+    }
+    #game-stats strong {
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+    }
+    #pause-game {
+      padding: 6px 10px;
+      color: #0f0;
+      background: #111;
+      border: 1px solid #0f0;
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
-  <h1>SLIDTRIX</h1>
+  <h2>SLIDTRIX</h2>
+  <div id="library-controls" aria-label="Level library controls">
+    <button id="open-library" type="button">Level Library</button>
+    <button id="import-level" type="button">Import Level Code</button>
+    <button id="save-to-library" type="button">Save to Library</button>
+  </div>
+  <p id="level-meta"></p>
+  <p id="status"></p>
+  <div id="game-stats" aria-label="Game statistics" hidden>
+    <span>Moves: <strong id="moves-count">0</strong></span>
+    <span>Timer: <strong id="timer-count">00:00</strong></span>
+    <span>Ticks: <strong id="ticks-count">0</strong></span>
+    <button id="pause-game" type="button" hidden>Pause</button>
+  </div>
+  <div id="grid"></div>
 
-  <button class="menu-button" onclick="playGame()">Play</button>
-
-  <script>
-    function playGame() {
-      window.location.href = 'slidtrix.html';
-    }
-  </script>
+<script src="scriptrix.js"></script>
 </body>
 </html>
