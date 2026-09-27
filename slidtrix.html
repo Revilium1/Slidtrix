@@ -36,7 +36,22 @@
       background-color: #000;
     }
     #controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
       margin-bottom: 10px;
+    }
+    #controls button, #pause-game {
+      padding: 8px 12px;
+      color: #0f0;
+      background: #111;
+      border: 1px solid #0f0;
+      cursor: pointer;
+    }
+    #game-stats {
+      color: #0f0;
+      margin: 0 0 10px;
     }
     label {
       margin-right: 8px;
@@ -46,6 +61,18 @@
 <body>
   <h2>SLIDTRIX</h2>
   <p id="status"></p>
+  <p id="level-meta"></p>
+  <div id="game-stats" hidden>
+    Moves: <span id="moves-count">0</span> |
+    Time: <span id="timer-count">00:00</span> |
+    Ticks: <span id="ticks-count">0</span>
+    <button id="pause-game" type="button" hidden>Pause</button>
+  </div>
+  <div id="controls">
+    <button id="open-library" type="button">Level Library</button>
+    <button id="import-level" type="button">Import Level</button>
+    <button id="save-to-library" type="button">Save to Library</button>
+  </div>
   <div id="grid"></div>
 
 <script src="scriptrix.js"></script>
