@@ -15,7 +15,7 @@
 // NOTE: Order matters — tiles are cycled in this exact sequence in the editor
 const TILE_TYPES = [
   { type: 'wall', symbol: '#', color: '#555' },
-  { type: 'empty', symbol: '.', color: '#fff' },
+  { type: 'floor', symbol: '.', color: '#fff' },
   { type: 'start', symbol: '*', color: '#0f0' },
   { type: 'end', symbol: '~', color: '#f00' },
   { type: 'sticky', symbol: '&', color: '#ff0' },
@@ -25,6 +25,11 @@ const TILE_TYPES = [
   { type: 'conveyor-right', symbol: '→', color: '#0ff' },
   { type: 'trap', symbol: 'X', color: '#f80' },
   { type: 'lava', symbol: '▒', color: '#f00' },
+  { type: 'spikes', symbol: '^', color: '#f00' },
+  { type: 'cracked-floor', symbol: '%', color: '#999' },
+  { type: 'bumper', symbol: 'O', color: '#40f' },
+  { type: 'rotate-left', symbol: '↺', color: '#071' },
+  { type: 'rotate-right', symbol: '↻', color: '#071' },
   { type: 'portal', symbol: '☉', color: '#a0f' },
 ];
 
@@ -36,7 +41,9 @@ function getTileDefinition(type) {
 }
 
 const gridSize = 10;
-const grid = [];     
+const grid = [];
+const attemptSpikes = new Set();
+const attemptCrackedFloors = new Set();
 let player = null;              
 let gameStarted = false;
 let tickInterval = null;
@@ -231,6 +238,25 @@ function getCell(x, y) {
   return grid[y][x];
 }
 
+function turnSpikesToLava(cell) {
+  if (cell.type !== 'spikes') return;
+  attemptSpikes.add(cell);
+  cell.type = 'lava';
+}
+
+function turnCrackedFloorToWall(cell) {
+  if (cell.type !== 'cracked-floor') return;
+  attemptCrackedFloors.add(cell);
+  cell.type = 'wall';
+}
+
+function restoreAttemptSpikes() {
+  for (const cell of attemptSpikes) cell.type = 'spikes';
+  attemptSpikes.clear();
+  for (const cell of attemptCrackedFloors) cell.type = 'cracked-floor';
+  attemptCrackedFloors.clear();
+}
+
 // Main simulation loop:
 // - Runs at a fixed tick rate (not frame-based)
 // - All movement, death, and win logic happens here
@@ -261,6 +287,11 @@ function startTickLoop() {
         if (!nextCell || nextCell.type === 'wall') {
           player.moveDirection = null;
         } else {
+          // Leaving spikes turns the tile into lava for this attempt.
+          const previousCell = getCell(player.x, player.y);
+          turnSpikesToLava(previousCell);
+          turnCrackedFloorToWall(previousCell);
+
           // move into next tile
           player.x = nextX;
           player.y = nextY;
@@ -284,6 +315,24 @@ function startTickLoop() {
             return;
           }
 
+          // Bumpers reverse the player's momentum on entry.
+          if (nextCell.type === 'bumper') {
+            player.moveDirection = {
+              dx: -player.moveDirection.dx,
+              dy: -player.moveDirection.dy
+            };
+          } else if (nextCell.type === 'rotate-left') {
+            player.moveDirection = {
+              dx: player.moveDirection.dy,
+              dy: -player.moveDirection.dx
+            };
+          } else if (nextCell.type === 'rotate-right') {
+            player.moveDirection = {
+              dx: -player.moveDirection.dy,
+              dy: player.moveDirection.dx
+            };
+          }
+
           // stop immediately if sticky and allow turning
           if (nextCell.type === 'sticky') {
             player.moveDirection = null;
@@ -304,6 +353,7 @@ function startTickLoop() {
           tickInterval = null;
           gameStarted = false;
           player = null;
+          restoreAttemptSpikes();
           renderGrid();
 
           const clearedExportPlaytest = exportPlaytestGrid !== null &&
@@ -345,8 +395,20 @@ function startTickLoop() {
           }
           const nextCell = getCell(player.x + dx, player.y + dy);
           if (nextCell && nextCell.type !== 'wall') {
+            const previousCell = getCell(player.x, player.y);
+            turnSpikesToLava(previousCell);
+            turnCrackedFloorToWall(previousCell);
             player.x += dx;
             player.y += dy;
+
+            // Special tiles can redirect the conveyor's push on entry.
+            if (nextCell.type === 'bumper') {
+              player.moveDirection = { dx: -dx, dy: -dy };
+            } else if (nextCell.type === 'rotate-left') {
+              player.moveDirection = { dx: dy, dy: -dx };
+            } else if (nextCell.type === 'rotate-right') {
+              player.moveDirection = { dx: -dy, dy: dx };
+            }
 
             // lava kills if conveyor pushes you onto it
             if (nextCell.type === 'lava') {
@@ -381,6 +443,7 @@ function setMoveDirection(dx, dy) {
 // Resets runtime state only; the level layout is preserved
 function resetGame() {
   exportPlaytestGrid = null;
+  restoreAttemptSpikes();
   setStatus('');
   if (tickInterval) clearInterval(tickInterval);
   tickInterval = null;
@@ -497,7 +560,7 @@ function showHelp() {
 
   const tileDescriptions = {
     wall: 'Blocks movement; the player stops before it.',
-    empty: 'Safe space to cross.',
+    floor: 'Safe space to cross.',
     start: 'The player begins here.',
     end: 'Win by coming to a stop on it.',
     sticky: 'Stops the player and allows a new direction.',
@@ -507,6 +570,11 @@ function showHelp() {
     'conveyor-right': 'Pushes the player right one tile while stopped.',
     trap: 'Kills the player if they stop on it.',
     lava: 'Kills immediately on entry.',
+    spikes: 'Turns into lava when the player leaves it.',
+    'cracked-floor': 'Turns into a wall when the player leaves it.',
+    bumper: 'Reverses the player’s direction on entry.',
+    'rotate-left': 'Turns the player’s direction 90° counterclockwise on entry.',
+    'rotate-right': 'Turns the player’s direction 90° clockwise on entry.',
     portal: 'Teleports between a pair; use either zero or exactly two portals.'
   };
 
@@ -572,6 +640,8 @@ document.addEventListener('keydown', (e) => {
 
     if (!validatePortals()) return; // <- check portals 
 
+    // Starting again with Tab begins a fresh attempt, so restore temporary lava.
+    restoreAttemptSpikes();
     player = { x: starts[0].x, y: starts[0].y, moveDirection: null, onSticky: false };
     startGameStats();
     gameStarted = true;
