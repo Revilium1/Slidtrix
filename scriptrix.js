@@ -40,9 +40,13 @@ function getTileDefinition(type) {
   return TILE_TYPES.find(tile => tile.type === type);
 }
 
-const gridSize = 10;
+let gridWidth = 10;
+let gridHeight = 10;
 const grid = [];
 const attemptSpikes = new Set();
+let selectedTileIndex = 0;
+let paintOperation = null;
+let activePaintButton = null;
 const attemptCrackedFloors = new Set();
 let player = null;              
 let gameStarted = false;
@@ -52,6 +56,7 @@ const redoStack = [];
 
 const statusEl = document.getElementById('status');
 const gridEl = document.getElementById('grid');
+const editorStatusEl = document.getElementById('editor-status');
 const gameStatsEl = document.getElementById('game-stats');
 const movesEl = document.getElementById('moves-count');
 const timerEl = document.getElementById('timer-count');
@@ -67,6 +72,16 @@ const pauseButton = document.getElementById('pause-game');
 
 function setStatus(msg) {
   statusEl.textContent = msg;
+}
+
+function shouldIgnoreAppShortcuts(event) {
+  const target = event.target;
+  const typing = target instanceof Element &&
+    target.matches('input, textarea, select, [contenteditable="true"]');
+  const dialogOpen = Boolean(document.querySelector(
+    '.help-overlay, .library-overlay, .verify-overlay, .export-overlay'
+  ));
+  return typing || (dialogOpen && event.key !== 'Escape');
 }
 
 function startGameStats() {
@@ -132,58 +147,86 @@ function clearGameStats() {
   updateGameStats();
 }
 
-function createGrid() {
-  gridEl.style.gridTemplateColumns = `repeat(${gridSize}, 40px)`;
-  gridEl.style.gridTemplateRows = `repeat(${gridSize}, 40px)`;
-  for (let y = 0; y < gridSize; y++) {
+function createGrid(newCellType = 'wall') {
+  grid.length = 0;
+  gridEl.replaceChildren();
+  gridEl.style.gridTemplateColumns = `repeat(${gridWidth}, 40px)`;
+  gridEl.style.gridTemplateRows = `repeat(${gridHeight}, 40px)`;
+  for (let y = 0; y < gridHeight; y++) {
     grid[y] = [];
-    for (let x = 0; x < gridSize; x++) {
-      const cell = { x, y, type: 'wall' };
+    for (let x = 0; x < gridWidth; x++) {
+      const cell = { x, y, type: newCellType };
       grid[y][x] = cell;
-
       const div = document.createElement('div');
       div.className = 'tile';
       div.dataset.x = x;
       div.dataset.y = y;
-      const tile = getTileDefinition(cell.type);
-      div.innerText = tile.symbol;
-      div.style.color = tile.color;
-
-      div.addEventListener('click', () => {
-        if (gameStarted) return;
-        cycleTile(cell, div, false); // normal forward cycle
-      });
-      div.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        if (gameStarted) return;
-        cycleTile(cell, div, true); // backwards cycle
-      });
-
       cell.el = div;
+      div.addEventListener('mousedown', event => {
+        if (gameStarted || (event.button !== 0 && event.button !== 2)) return;
+        event.preventDefault();
+        beginPainting(event.button);
+        paintCell(cell);
+      });
+      div.addEventListener('mouseenter', () => {
+        if (!gameStarted && activePaintButton !== null) paintCell(cell);
+      });
+      div.addEventListener('contextmenu', event => event.preventDefault());
       gridEl.appendChild(div);
     }
   }
+  renderGrid();
+  updateEditorStatus();
 }
 
-// Editor-only tile cycling; disabled once the game starts
-// Left click = forward, right click = backward
-function cycleTile(cell, el, backwards = false) {
+document.addEventListener('mouseup', finishPainting);
+
+function beginPainting(button) {
+  if (activePaintButton !== null) finishPainting();
+  activePaintButton = button;
+  paintOperation = {
+    changes: [],
+    seen: new Set(),
+    paintType: button === 2 ? 'floor' : TILE_TYPES[selectedTileIndex].type
+  };
+}
+
+function paintCell(cell) {
+  if (!paintOperation) return;
+  const key = `${cell.x},${cell.y}`;
+  if (paintOperation.seen.has(key)) return;
+  paintOperation.seen.add(key);
+  const nextType = paintOperation.paintType;
+  if (cell.type === nextType) return;
+  paintOperation.changes.push({ x: cell.x, y: cell.y, previousType: cell.type, nextType });
+  cell.type = nextType;
   exportPlaytestGrid = null;
   exportPlaytestPassed = false;
-  const previousType = cell.type;
-  const currentIndex = TILE_TYPES.findIndex(tile => tile.type === cell.type);
-  let nextIndex;
-  if (backwards) {
-    nextIndex = (currentIndex - 1 + TILE_TYPES.length) % TILE_TYPES.length;
-  } else {
-    nextIndex = (currentIndex + 1) % TILE_TYPES.length;
+  renderGrid();
+}
+
+function finishPainting() {
+  if (!paintOperation) {
+    activePaintButton = null;
+    return;
   }
-  const tile = TILE_TYPES[nextIndex];
-  cell.type = tile.type;
-  el.innerText = tile.symbol;
-  el.style.color = tile.color;
-  undoStack.push({ x: cell.x, y: cell.y, previousType, nextType: tile.type });
-  redoStack.length = 0;
+  if (paintOperation.changes.length) {
+    undoStack.push(paintOperation);
+    redoStack.length = 0;
+  }
+  paintOperation = null;
+  activePaintButton = null;
+}
+
+function updateEditorStatus() {
+  if (!editorStatusEl) return;
+  const tile = TILE_TYPES[selectedTileIndex];
+  editorStatusEl.innerHTML = `Selected: <span style="color:${tile.color}">${tile.symbol}</span> ${tile.type} | Grid: ${gridWidth} × ${gridHeight}`;
+}
+
+function selectTile(direction) {
+  selectedTileIndex = (selectedTileIndex + direction + TILE_TYPES.length) % TILE_TYPES.length;
+  updateEditorStatus();
 }
 
 function undoTileEdit() {
@@ -191,7 +234,9 @@ function undoTileEdit() {
   if (!edit) return;
   exportPlaytestGrid = null;
   exportPlaytestPassed = false;
-  grid[edit.y][edit.x].type = edit.previousType;
+  for (const change of [...edit.changes].reverse()) {
+    if (grid[change.y]?.[change.x]) grid[change.y][change.x].type = change.previousType;
+  }
   redoStack.push(edit);
   renderGrid();
 }
@@ -201,7 +246,9 @@ function redoTileEdit() {
   if (!edit) return;
   exportPlaytestGrid = null;
   exportPlaytestPassed = false;
-  grid[edit.y][edit.x].type = edit.nextType;
+  for (const change of edit.changes) {
+    if (grid[change.y]?.[change.x]) grid[change.y][change.x].type = change.nextType;
+  }
   undoStack.push(edit);
   renderGrid();
 }
@@ -234,8 +281,39 @@ function findAllStarts() {
 }
 
 function getCell(x, y) {
-  if (x < 0 || y < 0 || x >= gridSize || y >= gridSize) return null;
+  if (x < 0 || y < 0 || y >= gridHeight || x >= gridWidth) return null;
   return grid[y][x];
+}
+
+function resizeGrid(width, height) {
+  if (gameStarted) return;
+  const nextWidth = Math.max(1, Math.min(30, width));
+  const nextHeight = Math.max(1, Math.min(30, height));
+  if (nextWidth === gridWidth && nextHeight === gridHeight) return;
+
+  let removedCellCount = 0;
+  for (let y = 0; y < gridHeight; y++) {
+    for (let x = 0; x < gridWidth; x++) {
+      if (x >= nextWidth || y >= nextHeight) removedCellCount++;
+    }
+  }
+  if (removedCellCount && !confirm(`Resizing will remove ${removedCellCount} cell(s), including any tiles placed there. Continue?`)) return;
+
+  const previous = grid.map(row => row.map(cell => cell.type));
+  gridWidth = nextWidth;
+  gridHeight = nextHeight;
+  createGrid('floor');
+  for (let y = 0; y < Math.min(previous.length, gridHeight); y++) {
+    for (let x = 0; x < Math.min(previous[y].length, gridWidth); x++) {
+      grid[y][x].type = previous[y][x];
+    }
+  }
+  undoStack.length = 0;
+  redoStack.length = 0;
+  exportPlaytestGrid = null;
+  exportPlaytestPassed = false;
+  renderGrid();
+  updateEditorStatus();
 }
 
 function turnSpikesToLava(cell) {
@@ -551,7 +629,7 @@ function showHelp() {
         <li><kbd>+</kbd> or <kbd>=</kbd> — toggle fullscreen.</li>
         <li><kbd>Esc</kbd> — pause or resume during play; dismiss this guide when it is open.</li>
         <li><kbd>/</kbd> — open this guide; use the Close button to dismiss it.</li>
-        <li>In the editor, left-click cycles tiles forward and right-click cycles backward; <kbd>Ctrl+Z</kbd> undoes and <kbd>Ctrl+Y</kbd> redoes edits.</li>
+        <li>In the editor, <kbd>Q</kbd>/<kbd>E</kbd> select tiles, left-drag paints, and right-drag erases to floor; <kbd>Ctrl+Z</kbd> undoes and <kbd>Ctrl+Y</kbd> redoes edits. Use <kbd>Ctrl</kbd> + arrow keys to resize the grid.</li>
       </ul>
       <h3>Tiles</h3>
       <ul class="help-tiles"></ul>
@@ -602,9 +680,13 @@ function randomizeLevel() {
   if (gameStarted) return;
 
   const types = TILE_TYPES.map(tile => tile.type).filter(type => type !== 'start' && type !== 'end' && type !== 'portal');
-  const positions = Array.from({ length: gridSize * gridSize }, (_, index) => index);
-  for (let y = 0; y < gridSize; y++) {
-    for (let x = 0; x < gridSize; x++) {
+  const positions = Array.from({ length: gridWidth * gridHeight }, (_, index) => index);
+  if (positions.length < 2) {
+    setStatus('Randomization requires at least two cells.');
+    return;
+  }
+  for (let y = 0; y < gridHeight; y++) {
+    for (let x = 0; x < gridWidth; x++) {
       grid[y][x].type = types[Math.floor(Math.random() * types.length)];
     }
   }
@@ -615,14 +697,14 @@ function randomizeLevel() {
 
   const startIndex = positions.pop();
   const endIndex = positions.pop();
-  grid[Math.floor(startIndex / gridSize)][startIndex % gridSize].type = 'start';
-  grid[Math.floor(endIndex / gridSize)][endIndex % gridSize].type = 'end';
+  grid[Math.floor(startIndex / gridWidth)][startIndex % gridWidth].type = 'start';
+  grid[Math.floor(endIndex / gridWidth)][endIndex % gridWidth].type = 'end';
 
-  if (Math.random() < 0.5) {
+  if (positions.length >= 2 && Math.random() < 0.5) {
     const firstPortal = positions.pop();
     const secondPortal = positions.pop();
-    grid[Math.floor(firstPortal / gridSize)][firstPortal % gridSize].type = 'portal';
-    grid[Math.floor(secondPortal / gridSize)][secondPortal % gridSize].type = 'portal';
+    grid[Math.floor(firstPortal / gridWidth)][firstPortal % gridWidth].type = 'portal';
+    grid[Math.floor(secondPortal / gridWidth)][secondPortal % gridWidth].type = 'portal';
   }
 
   undoStack.length = 0;
@@ -634,6 +716,8 @@ function randomizeLevel() {
 }
 
 document.addEventListener('keydown', (e) => {
+  if (shouldIgnoreAppShortcuts(e)) return;
+  const typingTarget = e.target.matches('input, textarea, select');
   if (gameStarted || e.ctrlKey || e.altKey || e.metaKey || e.key.length !== 1) {
     editorSecretSequence = '';
   } else {
@@ -641,6 +725,27 @@ document.addEventListener('keydown', (e) => {
     if (editorSecretSequence === EDITOR_SECRET) {
       editorSecretSequence = '';
       randomizeLevel();
+      return;
+    }
+  }
+
+  if (!gameStarted && !typingTarget) {
+    if (e.ctrlKey && e.key.startsWith('Arrow')) {
+      e.preventDefault();
+      if (e.key === 'ArrowUp') resizeGrid(gridWidth, gridHeight + 1);
+      if (e.key === 'ArrowDown') resizeGrid(gridWidth, gridHeight - 1);
+      if (e.key === 'ArrowLeft') resizeGrid(gridWidth - 1, gridHeight);
+      if (e.key === 'ArrowRight') resizeGrid(gridWidth + 1, gridHeight);
+      return;
+    }
+    if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 'q') {
+      e.preventDefault();
+      selectTile(-1);
+      return;
+    }
+    if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 'e') {
+      e.preventDefault();
+      selectTile(1);
       return;
     }
   }
@@ -666,6 +771,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if (shouldIgnoreAppShortcuts(e)) return;
   if (e.key === 'Escape' && gameStarted && !e.repeat &&
       !document.querySelector('.help-overlay, .library-overlay, .verify-overlay, .export-overlay')) {
     e.preventDefault();
@@ -1006,8 +1112,9 @@ function makeLevelId() {
 }
 
 function isValidLevelGrid(candidate) {
-  return Array.isArray(candidate) && candidate.length === gridSize &&
-    candidate.every(row => Array.isArray(row) && row.length === gridSize &&
+  return Array.isArray(candidate) && candidate.length >= 1 && candidate.length <= 30 &&
+    Array.isArray(candidate[0]) && candidate[0].length >= 1 && candidate[0].length <= 30 &&
+    candidate.every(row => Array.isArray(row) && row.length === candidate[0].length &&
       row.every(type => TILE_TYPES.some(tile => tile.type === type)));
 }
 
@@ -1046,6 +1153,9 @@ function loadLibraryLevel(entry, mode) {
     return;
   }
   resetGame();
+  gridWidth = entry.grid[0].length;
+  gridHeight = entry.grid.length;
+  createGrid();
   entry.grid.forEach((row, y) => row.forEach((type, x) => { grid[y][x].type = type; }));
   levelTitle = entry.title || 'Untitled Level';
   levelAuthor = entry.author || 'Unknown';
@@ -1198,6 +1308,7 @@ function openLevelLibrary() {
     const row = document.createElement('article'); row.className = 'library-entry';
     const preview = document.createElement('div'); preview.className = 'library-preview';
     if (isValidLevelGrid(entry.grid)) {
+      preview.style.gridTemplateColumns = `repeat(${entry.grid[0].length}, 9px)`;
       entry.grid.forEach(line => line.forEach(type => {
         const cell = document.createElement('span');
         const tile = getTileDefinition(type);
@@ -1242,6 +1353,7 @@ document.getElementById('import-level').addEventListener('click', requestLevelIm
 document.getElementById('save-to-library').addEventListener('click', saveCurrentToLibrary);
 pauseButton.addEventListener('click', toggleGamePause);
 document.addEventListener('keydown', event => {
+  if (shouldIgnoreAppShortcuts(event)) return;
   if (event.ctrlKey && event.key.toLowerCase() === 's') {
     event.preventDefault();
     saveCurrentToLibrary();
@@ -1251,6 +1363,7 @@ document.addEventListener('keydown', event => {
 
 // Attach hotkeys **after** functions exist
 document.addEventListener('keydown', (e) => {
+  if (shouldIgnoreAppShortcuts(e)) return;
   if (e.key === 'o' || e.key === 'O') {
     exportLevel();
   } else if ((e.key === 'p' || e.key === 'P') && !gameStarted) {
