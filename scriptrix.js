@@ -595,7 +595,56 @@ function showHelp() {
   });
 }
 
+let editorSecretSequence = '';
+const EDITOR_SECRET = 'slidtrix';
+
+function randomizeLevel() {
+  if (gameStarted) return;
+
+  const types = TILE_TYPES.map(tile => tile.type).filter(type => type !== 'start' && type !== 'end' && type !== 'portal');
+  const positions = Array.from({ length: gridSize * gridSize }, (_, index) => index);
+  for (let y = 0; y < gridSize; y++) {
+    for (let x = 0; x < gridSize; x++) {
+      grid[y][x].type = types[Math.floor(Math.random() * types.length)];
+    }
+  }
+  for (let i = positions.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [positions[i], positions[j]] = [positions[j], positions[i]];
+  }
+
+  const startIndex = positions.pop();
+  const endIndex = positions.pop();
+  grid[Math.floor(startIndex / gridSize)][startIndex % gridSize].type = 'start';
+  grid[Math.floor(endIndex / gridSize)][endIndex % gridSize].type = 'end';
+
+  if (Math.random() < 0.5) {
+    const firstPortal = positions.pop();
+    const secondPortal = positions.pop();
+    grid[Math.floor(firstPortal / gridSize)][firstPortal % gridSize].type = 'portal';
+    grid[Math.floor(secondPortal / gridSize)][secondPortal % gridSize].type = 'portal';
+  }
+
+  undoStack.length = 0;
+  redoStack.length = 0;
+  exportPlaytestGrid = null;
+  exportPlaytestPassed = false;
+  renderGrid();
+  setStatus('Level randomized!');
+}
+
 document.addEventListener('keydown', (e) => {
+  if (gameStarted || e.ctrlKey || e.altKey || e.metaKey || e.key.length !== 1) {
+    editorSecretSequence = '';
+  } else {
+    editorSecretSequence = (editorSecretSequence + e.key.toLowerCase()).slice(-EDITOR_SECRET.length);
+    if (editorSecretSequence === EDITOR_SECRET) {
+      editorSecretSequence = '';
+      randomizeLevel();
+      return;
+    }
+  }
+
   if (e.ctrlKey && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
     e.preventDefault();
     if (gameStarted) return;
